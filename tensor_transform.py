@@ -172,6 +172,18 @@ def test_zernike_form():
     sz = apply(s.simplify, s.cancel, s.expand, limitO(kappa, 0))(scaled_zernike(kappa)(n,k)(z))
     assert(s.simplify(1 - 6 * z * s.conjugate(z) + 6 * z**2 * s.conjugate(z)**2 - sz) == 0)
 
+def test_expression_forms():
+    '''Print the symbolic forms in Mathematica input form for expressions to check against other sources'''
+    (n,k) = (4,2)
+    kappa = s.symbols('\[Kappa]', real=True)
+    alpha = s.symbols('\[Alpha]', real=True)
+    ess = s.symbols('s', real=True)
+    z = s.symbols('z')
+    beta = 0
+    print('')
+    print('Geodesic: {}'.format(mathematica_code(geodesic(kappa)(alpha,beta)(ess))))
+    print('Scaled Zernike (n,k)=({n},{k}): {}'.format(mathematica_code(scaled_zernike(kappa)(n,k)(z)), n=n, k=k))
+
 # Radon transform tests
 @pytest.mark.parametrize('n,k', [(3, 1)])
 def test_scalar_transform_manip(n,k):
