@@ -2,7 +2,6 @@
 import pytest
 import sympy as s
 from sympy.core.evaluate import evaluate
-from sympy.utilities.autowrap import autowrap
 from sympy.printing.mathematica import mathematica_code
 import sympy.utilities.codegen
 import sympy.printing.ccode
@@ -17,11 +16,10 @@ import ctypes as ct
 import uuid
 import sys
 
-# class C99ComplexCodePrinter(sympy.printing.ccode.C99CodePrinter):
-    
+gsl_path = '/usr/local'
+
 complex_hack = s.I - s.UnevaluatedExpr(s.I) # Force something to be complex valued
 s.init_printing()
-autowrap_args = {'tempdir':'./codegen', 'backend':'cython', 'verbose':True, 'extra_compile_args':['-O3', '-march=native', '-includecomplex.h']}
 
 # Utilities to write point free style for expression manipulation
 
@@ -133,14 +131,21 @@ def psi(kappa):
 def singular_vals(kappa):
     return lambda n: 2 * s.pi / s.sqrt((1 + kappa**2) * (n + 1))
 
-# def scalar_transform(kappa):
-#     l = s.Dummy('l')
-#     # Wrap geodesic in unevaluatedexpr to avoid choking expression manipulation
-#     return lambda phi: lambda alpha, beta: (
-#             apply(integrateO((l, 0, exit_time(kappa)(alpha))))(
-#                 jacobian(kappa)(geodesic(kappa)(alpha,beta)(l))
-#                 * phi(s.UnevaluatedExpr(geodesic(kappa)(alpha,beta)(l)))))
+def scalar_transform(kappa, phi):
+    alpha = s.symbols('alpha', real=True)
+    l = s.symbols('l', real=True)
+    beta = 0
 
+    lower = 0
+    upper = exit_time(kappa)(alpha)
+    integrand = weight(kappa)(geodesic(kappa)(alpha,beta)(l)) * phi(s.UnevaluatedExpr(geodesic(kappa)(alpha,beta)(l)))
+    
+    re_part = integrate_vals(s.re(integrand), lower, upper, l, [alpha])
+    im_part = integrate_vals(s.im(integrand), lower, upper, l, [alpha])
+
+    def transformed(a):
+        return re_part([a]) + 1j* im_part([a])
+    return np.vectorize(transformed)
 # Tests...
 
 # # Zernike Tests
@@ -196,37 +201,25 @@ def test_scalar_transform_manip(n,k):
 
     s.pprint(jacobian(kappa)(geodesic(kappa)(alpha,beta)(l)) * phi(s.UnevaluatedExpr(geodesic(kappa)(alpha,beta)(l))))
 
-# @pytest.mark.parametrize('n,k', [(3, 1)])
-# def test_scalar_transform(n,k):
-#     kappa = s.Rational(1,4)
-#     alpha = s.symbols('alpha', real=True)
-#     # set beta = 0
-#     beta = 0
+@pytest.mark.parametrize('n,k', [(3, 1)])
+def test_scalar_transform(n,k):
+    kappa = 1/8
+    alpha = s.symbols('alpha', real=True)
+    beta = 0
 
-#     # transformed = s.lambdify(alpha, scalar_transform(kappa)(scaled_zernike(kappa)(n, k))(alpha, beta), 'numpy')
-#     # output = s.lambdify(alpha, singular_vals(kappa)(n) * psi(kappa)(n,k)(alpha,beta), 'numpy')
+    alpha_vals = np.linspace(-np.pi/2, np.pi/2, 1000)
+    radon_vals = scalar_transform(kappa, scaled_zernike(kappa)(n, k))(alpha_vals)
+    psi_vals = np.vectorize(s.lambdify(alpha, singular_vals(kappa)(n) * psi(kappa)(n, k)(alpha, beta), 'numpy'))(alpha_vals)
 
-#     output = autowrap(s.re(singular_vals(kappa)(n) * psi(kappa)(n,k)(alpha,beta)),
-#         args=[alpha], **autowrap_args)
-#     transformed = autowrap(s.re(scalar_transform(kappa)(scaled_zernike(kappa)(n, k))(alpha, beta)),
-#         args=[alpha], **autowrap_args)
-
-#     # transformed = lambda a: num_scalar_transform(kappa, scaled_zernike(kappa)(n, k), alpha, beta)
-
-#     a = np.linspace(-np.pi/2, np.pi/2, 100)
-#     plt.plot(a, np.vectorize(output)(a), label=r'$\hat{\psi}$')
-#     plt.plot(a, np.vectorize(transformed)(a), label=r'$I[Z]$')
-#     plt.legend()
-#     plt.show()
+    assert np.sum(np.abs(psi_vals - radon_vals))/len(alpha_vals) < 1e-8
 
 
-def integrate_vals(integrand, lower, upper, integration_param, parameter_vars, parameter_vals):
+def integrate_vals(integrand, lower, upper, integration_param, parameter_vars):
     '''Integrate integrand from lower to upper as a function of parameter_vars'''
 
     # Codegen module
 
     cg = sympy.utilities.codegen.FCodeGen()
-    # cg = sympy.utilities.codegen.CCodeGen(preprocessor_statements=['#include <complex.h>', '#include <math.h>'])
 
     integrand_routine = cg.routine('integrand', integrand, argument_sequence=[integration_param]+parameter_vars)
     lower_routine = cg.routine('lower', lower + complex_hack, argument_sequence=parameter_vars)
@@ -306,33 +299,31 @@ double integrate_func({args_header}) {{
     eval_integral_module.integrate_func.argtypes = [ct.c_double for v in arg_str]
     eval_integral_module.integrate_func.restype = ct.c_double
     
-    integrate_func = lambda params: eval_integral_module.integrate_func(*[ct.c_double(v) for v in params])
-    return list(map(integrate_func, parameter_vals))
+    def integrated(parameter_vals):
+        return eval_integral_module.integrate_func(*[ct.c_double(v) for v in parameter_vals])
+    return integrated
 
 
 if __name__ == '__main__':
     try:
         gsl_path = sys.argv[1]
     except:
-        gsl_path = '/usr/local'
+        pass
     (n,k) = 2, 1
 
     # kappa = s.symbols(r'\[Kappa]', real=True)
-    kappa = 1/4
+    kappa = 1/8
     alpha = s.symbols('alpha', real=True)
     beta = s.S.Zero
 
     l = s.symbols('l', real=True)
 
     # Numerical Transform
-    lower = 0
-    upper = exit_time(kappa)(alpha)
-    integrand = weight(kappa)(geodesic(kappa)(alpha,beta)(l)) * scaled_zernike(kappa)(n, k)(s.UnevaluatedExpr(geodesic(kappa)(alpha,beta)(l)))
-
     alpha_vals = [[v] for v in np.linspace(-np.pi/2, np.pi/2, 1000)]
-    
-    plt.plot(alpha_vals, np.array(integrate_vals(s.re(integrand), lower, upper, l, [alpha], alpha_vals)), label='Re[Radon]')
-    plt.plot(alpha_vals, integrate_vals(s.im(integrand), lower, upper, l, [alpha], alpha_vals), label='Im[Radon]')
+    radon_vals = scalar_transform(kappa, scaled_zernike(kappa)(n, k))(alpha_vals)
+
+    plt.plot(alpha_vals, np.real(radon_vals), label='Re[Radon]')
+    plt.plot(alpha_vals, np.imag(radon_vals), label='Re[Radon]')
     plt.plot(alpha_vals, np.vectorize(s.lambdify(alpha, singular_vals(kappa)(n) * s.re(psi(kappa)(n, k)(alpha, beta)), 'numpy'))(alpha_vals), label=r'$Re[\psi_{n,k}]$')
     plt.plot(alpha_vals, np.vectorize(s.lambdify(alpha, singular_vals(kappa)(n) * s.im(psi(kappa)(n, k)(alpha, beta)), 'numpy'))(alpha_vals), label=r'$Im[\psi_{n,k}]$')
     plt.grid()
