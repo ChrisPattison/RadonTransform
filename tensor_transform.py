@@ -119,7 +119,7 @@ def geodesic_tangent(kappa):
 
 # Radon Transform
 def psi(kappa):
-    a = s.Dummy('alpha')
+    a = s.Dummy('alpha', real=True)
     scatter = scattering_signature(kappa)
     scatterD = lambda alpha: scatter(a).diff(a).doit().subs(a, alpha)
     return lambda n, k: (lambda alpha, beta:
