@@ -169,14 +169,14 @@ def test_zernike_form():
 
     kappa = s.symbols('kappa') # reconstruct unscaled Zernike polynomials as kappa -> 0 limit
     n,k = (4,2)
-    sz = apply(s.simplify, s.cancel, s.expand, limitO(kappa, 0))(scaled_zernike(kappa)(n,k)(z))
+    sz = apply(s.simplify, s.cancel, s.expand, limitO(kappa, 0))(scaled_zernike(kappa)(n,k)(z) * s.sqrt(s.pi / ((n+1)*(1-kappa**4))))
     assert(s.simplify(1 - 6 * z * s.conjugate(z) + 6 * z**2 * s.conjugate(z)**2 - sz) == 0)
 
 def test_expression_forms():
     '''Print the symbolic forms in Mathematica input form for expressions to check against other sources'''
     (n,k) = (4,2)
-    kappa = s.symbols('\[Kappa]', real=True)
-    alpha = s.symbols('\[Alpha]', real=True)
+    kappa = s.symbols(r'\[Kappa]', real=True)
+    alpha = s.symbols(r'\[Alpha]', real=True)
     ess = s.symbols('s', real=True)
     z = s.symbols('z')
     beta = 0
@@ -317,7 +317,7 @@ if __name__ == '__main__':
         gsl_path = '/usr/local'
     (n,k) = 2, 1
 
-    # kappa = s.symbols('\[Kappa]', real=True)
+    # kappa = s.symbols(r'\[Kappa]', real=True)
     kappa = 1/4
     alpha = s.symbols('alpha', real=True)
     beta = s.S.Zero
